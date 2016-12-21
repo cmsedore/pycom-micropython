@@ -1556,7 +1556,7 @@ static int lora_socket_send (mod_network_socket_obj_t *s, const byte *buf, mp_ui
     mp_int_t n_bytes = -1;
 
     LORA_CHECK_SOCKET(s);
-    // is the radio able to transmi
+    // is the radio able to transmit
     if (lora_obj.pwr_mode == E_LORA_MODE_SLEEP) {
         *_errno = ENETDOWN;
     } else if (len > LORA_PAYLOAD_SIZE_MAX) {
