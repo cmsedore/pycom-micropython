@@ -3351,21 +3351,6 @@ LoRaMacStatus_t LoRaMacChannelAdd( uint8_t id, ChannelParams_t params )
             return LORAMAC_STATUS_BUSY;
         }
     }
-
-#if defined( USE_BAND_915) || defined( USE_BAND_915_HYBRID )
-    if (params.Frequency==0) {
-        if (id<LORA_MAX_NB_CHANNELS-8) {
-            params.Frequency = 902.3e6 + id * 200e3;
-            params.DrRange.Fields.Min = DR_0;
-            params.DrRange.Fields.Max = DR_3;
-        } else {
-            params.Frequency = 903.0e6 + id * 1.6e6;
-            params.DrRange.Fields.Min = DR_4;
-            params.DrRange.Fields.Max = DR_4;
-        }
-    }
-#endif
-
     // Validate the datarate
     if( ( params.DrRange.Fields.Min > params.DrRange.Fields.Max ) ||
         ( ValueInRange( params.DrRange.Fields.Min, LORAMAC_MIN_DATARATE,
