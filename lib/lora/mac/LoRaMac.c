@@ -23,6 +23,8 @@ Maintainer: Miguel Luis ( Semtech ), Gregory Cristian ( Semtech ) and Daniel Jä
 #include "LoRaMac.h"
 #include "LoRaMacTest.h"
 
+void mp_hal_stdout_tx_str(const char *str);
+
 /*!
  * Maximum PHY layer payload size
  */
@@ -3334,6 +3336,7 @@ LoRaMacStatus_t LoRaMacChannelAdd( uint8_t id, ChannelParams_t params )
     bool datarateInvalid = false;
     bool frequencyInvalid = false;
     uint8_t band = 0;
+    char dbuf[255];
 
     // The id must not exceed LORA_MAX_NB_CHANNELS
     if( id >= LORA_MAX_NB_CHANNELS )
@@ -3348,6 +3351,21 @@ LoRaMacStatus_t LoRaMacChannelAdd( uint8_t id, ChannelParams_t params )
             return LORAMAC_STATUS_BUSY;
         }
     }
+
+#if defined( USE_BAND_915) || defined( USE_BAND_915_HYBRID )
+    if (params.Frequency==0) {
+        if (id<LORA_MAX_NB_CHANNELS-8) {
+            params.Frequency = 902.3e6 + id * 200e3;
+            params.DrRange.Fields.Min = DR_0;
+            params.DrRange.Fields.Max = DR_3;
+        } else {
+            params.Frequency = 903.0e6 + id * 1.6e6;
+            params.DrRange.Fields.Min = DR_4;
+            params.DrRange.Fields.Max = DR_4;
+        }
+    }
+#endif
+
     // Validate the datarate
     if( ( params.DrRange.Fields.Min > params.DrRange.Fields.Max ) ||
         ( ValueInRange( params.DrRange.Fields.Min, LORAMAC_MIN_DATARATE,
@@ -3357,6 +3375,7 @@ LoRaMacStatus_t LoRaMacChannelAdd( uint8_t id, ChannelParams_t params )
     {
         datarateInvalid = true;
     }
+
 
 #if defined( USE_BAND_433 ) || defined( USE_BAND_780 ) || defined( USE_BAND_868 )
     if( id < 3 )
@@ -3435,6 +3454,16 @@ LoRaMacStatus_t LoRaMacChannelAdd( uint8_t id, ChannelParams_t params )
 #elseif (defined(USE_BAND_915) || defined(USE_BAND_915_HYBRID) )
     ChannelsMask[ (id / 16) ] |= (1 << (id % 16));
 #endif
+
+    for(id=0;id<LORA_MAX_NB_CHANNELS;id++) {
+        snprintf(dbuf,250,"\r\nchannel %i: %i hz %i min_dr %i max_dr %i mask",
+                 id,
+                 Channels[id].Frequency,
+                 Channels[id].DrRange.Fields.Min,
+                 Channels[id].DrRange.Fields.Max,
+                 ChannelsMask[(id/16)]&(1<<(id%16)));
+        mp_hal_stdout_tx_str(dbuf);
+    }
 
     return LORAMAC_STATUS_OK;
 }
