@@ -571,6 +571,12 @@ static void TASK_LoRa (void *pvParameters) {
                         mibReq.Param.AdrEnable = cmd_data.info.init.adr;
                         LoRaMacMibSetRequestConfirm(&mibReq);
 
+                        if (cmd_data.info.init.adr==false) {
+                            mibReq.Type = MIB_CHANNELS_TX_POWER;
+                            mibReq.Param.ChannelsTxPower = cmd_data.info.init.tx_power;
+                            LoRaMacMibSetRequestConfirm(&mibReq);
+                        }
+
                         mibReq.Type = MIB_PUBLIC_NETWORK;
                         mibReq.Param.EnablePublicNetwork = cmd_data.info.init.public;
                         LoRaMacMibSetRequestConfirm(&mibReq);
@@ -588,6 +594,9 @@ static void TASK_LoRa (void *pvParameters) {
 
                         // copy the configuration (must be done before sending the response)
                         lora_obj.adr = cmd_data.info.init.adr;
+                        if (cmd_data.info.init.adr==false) {
+                           lora_obj.tx_power=cmd_data.info.init.tx_power;
+                        }
                         lora_obj.public = cmd_data.info.init.public;
                         lora_obj.tx_retries = cmd_data.info.init.tx_retries;
                         lora_obj.frequency = RF_FREQUENCY_CENTER;
