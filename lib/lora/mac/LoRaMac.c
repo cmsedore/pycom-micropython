@@ -3405,7 +3405,7 @@ LoRaMacStatus_t LoRaMacChannelAdd( uint8_t id, ChannelParams_t params )
         {
             frequencyInvalid = true;
         }
-#elseif  defined( USE_BAND_915 ) || defined( USE_BAND_915_HYBRID)
+#elif  defined( USE_BAND_915 ) || defined( USE_BAND_915_HYBRID)
             band = 0;
 #endif
     }
@@ -3432,7 +3432,7 @@ LoRaMacStatus_t LoRaMacChannelAdd( uint8_t id, ChannelParams_t params )
     Channels[id].Band = band;
 #if ( defined( USE_BAND_433 ) || defined( USE_BAND_780 ) || defined( USE_BAND_868 ) )
     ChannelsMask[0] |= ( 1 << id );
-#elseif (defined(USE_BAND_915) || defined(USE_BAND_915_HYBRID) )
+#elif (defined(USE_BAND_915) || defined(USE_BAND_915_HYBRID) )
     ChannelsMask[ (id / 16) ] |= (1 << (id % 16));
 #endif
 
