@@ -161,6 +161,7 @@ typedef enum {
     E_LORA_ACTIVATION_ABP
 } lora_activation_t;
 
+// @formatter:off
 typedef struct {
   mp_obj_base_t     base;
   lora_stack_mode_t stack_mode;
@@ -173,6 +174,8 @@ typedef struct {
   uint8_t           preamble;
   uint8_t           bandwidth;
   uint8_t           coding_rate;
+  uint8_t           data_rate;
+  uint8_t           default_data_rate;
   uint8_t           sf;
   uint8_t           tx_power;
   uint8_t           pwr_mode;
@@ -571,12 +574,6 @@ static void TASK_LoRa (void *pvParameters) {
                         mibReq.Param.AdrEnable = cmd_data.info.init.adr;
                         LoRaMacMibSetRequestConfirm(&mibReq);
 
-                        if (cmd_data.info.init.adr==false) {
-                            mibReq.Type = MIB_CHANNELS_TX_POWER;
-                            mibReq.Param.ChannelsTxPower = cmd_data.info.init.tx_power;
-                            LoRaMacMibSetRequestConfirm(&mibReq);
-                        }
-
                         mibReq.Type = MIB_PUBLIC_NETWORK;
                         mibReq.Param.EnablePublicNetwork = cmd_data.info.init.public;
                         LoRaMacMibSetRequestConfirm(&mibReq);
@@ -594,12 +591,10 @@ static void TASK_LoRa (void *pvParameters) {
 
                         // copy the configuration (must be done before sending the response)
                         lora_obj.adr = cmd_data.info.init.adr;
-                        if (cmd_data.info.init.adr==false) {
-                           lora_obj.tx_power=cmd_data.info.init.tx_power;
-                        }
                         lora_obj.public = cmd_data.info.init.public;
                         lora_obj.tx_retries = cmd_data.info.init.tx_retries;
                         lora_obj.frequency = RF_FREQUENCY_CENTER;
+                        lora_obj.coding_rate = cmd_data.info.init.data_rate;
                         lora_obj.state = E_LORA_STATE_IDLE;
                     } else {
                         // radio initialization
@@ -710,6 +705,37 @@ static void TASK_LoRa (void *pvParameters) {
                     // just enable the receiver again
                     Radio.Rx(LORA_RX_TIMEOUT);
                     lora_obj.state = E_LORA_STATE_RX;
+                    xEventGroupSetBits(LoRaEvents, LORA_STATUS_COMPLETED);
+                    break;
+                case E_LORA_CMD_GET_DATA_RATE:
+                    mibReq.Type = MIB_CHANNELS_DATARATE;
+                    LoRaMacMibGetRequestConfirm(&mibReq);
+                    lora_obj.data_rate =  mibReq.Param.ChannelsDatarate;
+                    xEventGroupSetBits(LoRaEvents, LORA_STATUS_COMPLETED);
+                    break;
+                case E_LORA_CMD_SET_DEFAULT_DATA_RATE:
+                    mibReq.Type = MIB_CHANNELS_DEFAULT_DATARATE;
+                    mibReq.Param.ChannelsDefaultDatarate = cmd_data.info.init.default_data_rate;
+                    LoRaMacMibSetRequestConfirm(&mibReq);
+                    xEventGroupSetBits(LoRaEvents, LORA_STATUS_COMPLETED);
+                    break;
+                case E_LORA_CMD_GET_DEFAULT_DATA_RATE:
+                    mibReq.Type = MIB_CHANNELS_DEFAULT_DATARATE;
+                    LoRaMacMibGetRequestConfirm(&mibReq);
+                    lora_obj.default_data_rate =  mibReq.Param.ChannelsDefaultDatarate;
+                    xEventGroupSetBits(LoRaEvents, LORA_STATUS_COMPLETED);
+                    break;
+                case E_LORA_CMD_SET_TX_POWER:
+                    mibReq.Type = MIB_CHANNELS_TX_POWER;
+                    mibReq.Param.ChannelsTxPower = cmd_data.info.init.tx_power;
+                    LoRaMacMibSetRequestConfirm(&mibReq);
+                    lora_obj.tx_power=cmd_data.info.init.tx_power;
+                    xEventGroupSetBits(LoRaEvents, LORA_STATUS_COMPLETED);
+                    break;
+                case E_LORA_CMD_GET_TX_POWER:
+                    mibReq.Type = MIB_CHANNELS_TX_POWER;
+                    LoRaMacMibGetRequestConfirm(&mibReq);
+                    lora_obj.tx_power =  mibReq.Param.ChannelsTxPower;
                     xEventGroupSetBits(LoRaEvents, LORA_STATUS_COMPLETED);
                     break;
                 default:
@@ -918,6 +944,7 @@ static void lora_send_cmd (lora_cmd_data_t *cmd_data) {
 
 static int32_t lora_send (const byte *buf, uint32_t len, uint32_t timeout_ms) {
     lora_cmd_data_t cmd_data;
+    uint32_t result;
 
     cmd_data.cmd = E_LORA_CMD_TX;
     memcpy (cmd_data.info.tx.data, buf, len);
@@ -934,11 +961,15 @@ static int32_t lora_send (const byte *buf, uint32_t len, uint32_t timeout_ms) {
     }
 
     if (timeout_ms != 0) {
-        xEventGroupWaitBits(LoRaEvents,
+        result=xEventGroupWaitBits(LoRaEvents,
                             LORA_STATUS_COMPLETED | LORA_STATUS_ERROR,
                             pdTRUE,   // clear on exit
                             pdFALSE,  // do not wait for all bits
                             (TickType_t)portMAX_DELAY);
+
+        if (result & LORA_STATUS_ERROR) {
+            nlr_raise(mp_obj_new_exception_msg(&mp_type_OSError, mpexception_os_operation_failed));
+        }
     }
     // return the number of bytes sent
     return len;
@@ -1237,6 +1268,12 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(lora_compliance_test_obj, 1, 4, lora_
 STATIC mp_obj_t lora_tx_power (mp_uint_t n_args, const mp_obj_t *args) {
     lora_obj_t *self = args[0];
     if (n_args == 1) {
+        if (self->stack_mode == E_LORA_STACK_MODE_LORAWAN) {
+            lora_cmd_data_t cmd_data;
+            lora_get_config (&cmd_data);
+            cmd_data.cmd = E_LORA_CMD_GET_TX_POWER;
+            lora_send_cmd (&cmd_data);
+        }
         return mp_obj_new_int(self->tx_power);
     } else {
         lora_cmd_data_t cmd_data;
@@ -1244,7 +1281,14 @@ STATIC mp_obj_t lora_tx_power (mp_uint_t n_args, const mp_obj_t *args) {
         lora_validate_power(power);
         lora_get_config (&cmd_data);
         cmd_data.info.init.tx_power = power;
-        cmd_data.cmd = E_LORA_CMD_INIT;
+        if (self->stack_mode == E_LORA_STACK_MODE_LORAWAN) {
+            if (self->adr==true) {
+                nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "cannot set tx_power in with ADR enabled"));
+            }
+            cmd_data.cmd = E_LORA_CMD_SET_TX_POWER;
+        } else {
+            cmd_data.cmd=E_LORA_CMD_INIT;
+        }
         lora_send_cmd (&cmd_data);
         return mp_const_none;
     }
@@ -1267,6 +1311,45 @@ STATIC mp_obj_t lora_coding_rate (mp_uint_t n_args, const mp_obj_t *args) {
     }
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(lora_coding_rate_obj, 1, 2, lora_coding_rate);
+
+STATIC mp_obj_t lora_data_rate (mp_uint_t n_args, const mp_obj_t *args) {
+    lora_obj_t *self = args[0];
+    lora_cmd_data_t cmd_data;
+
+    if (self->stack_mode != E_LORA_STACK_MODE_LORAWAN) {
+        nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "data_rate not applicable unless in LORAWAN mode"));
+    }
+
+    cmd_data.cmd = E_LORA_CMD_GET_DATA_RATE;
+    lora_send_cmd (&cmd_data);
+    return mp_obj_new_int(self->data_rate);
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(lora_data_rate_obj, 1, 1, lora_data_rate);
+
+STATIC mp_obj_t lora_default_data_rate (mp_uint_t n_args, const mp_obj_t *args) {
+    lora_obj_t *self = args[0];
+    if (self->stack_mode != E_LORA_STACK_MODE_LORAWAN) {
+        nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "default_data_rate not applicable unless in LORAWAN mode"));
+    }
+    if (n_args == 1) {
+        lora_cmd_data_t cmd_data;
+        cmd_data.cmd = E_LORA_CMD_GET_DEFAULT_DATA_RATE;
+        lora_send_cmd (&cmd_data);
+        return mp_obj_new_int(self->data_rate);
+    } else {
+        lora_cmd_data_t cmd_data;
+        uint8_t data_rate = mp_obj_get_int(args[1]);
+        if (!lora_validate_data_rate(data_rate)) {
+            nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "data_rate %d out of range", data_rate));
+        }
+        cmd_data.info.init.data_rate = data_rate;
+        cmd_data.cmd = E_LORA_CMD_SET_DEFAULT_DATA_RATE;
+        lora_send_cmd (&cmd_data);
+        return mp_const_none;
+    }
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(lora_default_data_rate_obj, 1, 2, lora_default_data_rate);
 
 STATIC mp_obj_t lora_preamble (mp_uint_t n_args, const mp_obj_t *args) {
     lora_obj_t *self = args[0];
@@ -1448,6 +1531,8 @@ STATIC const mp_map_elem_t lora_locals_dict_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR_bandwidth),           (mp_obj_t)&lora_bandwidth_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_frequency),           (mp_obj_t)&lora_frequency_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_coding_rate),         (mp_obj_t)&lora_coding_rate_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_data_rate),           (mp_obj_t)&lora_data_rate_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_default_data_rate),   (mp_obj_t)&lora_default_data_rate_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_preamble),            (mp_obj_t)&lora_preamble_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_sf),                  (mp_obj_t)&lora_sf_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_power_mode),          (mp_obj_t)&lora_power_mode_obj },
