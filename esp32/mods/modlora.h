@@ -33,6 +33,11 @@ typedef enum {
     E_LORA_CMD_LORAWAN_TX,
     E_LORA_CMD_SLEEP,
     E_LORA_CMD_WAKE_UP,
+    E_LORA_CMD_GET_DATA_RATE,
+    E_LORA_CMD_SET_DEFAULT_DATA_RATE,
+    E_LORA_CMD_GET_DEFAULT_DATA_RATE,
+    E_LORA_CMD_SET_TX_POWER,
+    E_LORA_CMD_GET_TX_POWER,
 } lora_cmd_t;
 
 typedef struct {
@@ -41,6 +46,8 @@ typedef struct {
     uint8_t     preamble;
     uint8_t     bandwidth;
     uint8_t     coding_rate;
+    uint8_t     default_data_rate;
+    uint8_t     data_rate;
     uint8_t     sf;
     uint8_t     tx_power;
     uint8_t     power_mode;
