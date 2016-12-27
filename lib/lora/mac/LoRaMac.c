@@ -2498,6 +2498,8 @@ LoRaMacStatus_t Send( LoRaMacHeader_t *macHdr, uint8_t fPort, void *fBuffer, uin
 static LoRaMacStatus_t ScheduleTx( )
 {
     TimerTime_t dutyCycleTimeOff = 0;
+    int failsafe=0;
+    bool result;
 
     // Check if the device is off
     if( MaxDCycle == 255 )
@@ -2512,7 +2514,8 @@ static LoRaMacStatus_t ScheduleTx( )
     CalculateBackOff( LastTxChannel );
 
     // Select channel
-    while( SetNextChannel( &dutyCycleTimeOff ) == false )
+    // Use failsafe to prevent endless loop if no channels are available at an acceptable datarate
+    while(( (result=SetNextChannel( &dutyCycleTimeOff )) == false ) && (failsafe++<2))
     {
         // Set the default datarate
         ChannelsDatarate = ChannelsDefaultDatarate;
@@ -2521,6 +2524,11 @@ static LoRaMacStatus_t ScheduleTx( )
         // Re-enable default channels LC1, LC2, LC3
         ChannelsMask[0] = ChannelsMask[0] | ( LC( 1 ) + LC( 2 ) + LC( 3 ) );
 #endif
+    }
+
+    // No channels were available
+    if (result==false) {
+        return LORAMAC_STATUS_PARAMETER_INVALID;
     }
 
     // Schedule transmission of frame
@@ -3065,7 +3073,7 @@ LoRaMacStatus_t LoRaMacMibGetRequestConfirm( MibRequestConfirm_t *mibGet )
         }
         case MIB_CHANNELS_TX_POWER:
         {
-            mibGet->Param.ChannelsTxPower = ChannelsTxPower;
+            mibGet->Param.ChannelsTxPower = TxPowers[ChannelsTxPower];
             break;
         }
         case MIB_UPLINK_COUNTER:
@@ -3288,6 +3296,17 @@ LoRaMacStatus_t LoRaMacMibSetRequestConfirm( MibRequestConfirm_t *mibSet )
         }
         case MIB_CHANNELS_TX_POWER:
         {
+            //
+            // convert from a dbm input to the lookup table TxPowers
+            //
+            uint8_t txp=0;
+
+            while ((txp<sizeof(TxPowers)) && (mibSet->Param.ChannelsTxPower<TxPowers[txp])) {
+                txp++;
+            }
+
+            mibSet->Param.ChannelsTxPower=txp;
+
             if( ValueInRange( mibSet->Param.ChannelsTxPower,
                               LORAMAC_MAX_TX_POWER, LORAMAC_MIN_TX_POWER ) )
             {
