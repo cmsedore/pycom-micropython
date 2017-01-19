@@ -12,10 +12,34 @@ Quick usage example
     ::
 
         from network import Bluetooth
-        bluetooth = Bluetooth()
-        bluetooth.start_scan(-1)    # start scanning with no timeout
+        import time
+        bt = Bluetooth()
+        bt.start_scan(-1)
+
         while True:
-            print(bluetooth.get_adv())
+          adv = bt.get_adv()
+          if adv and bt.resolve_adv_data(adv.data, Bluetooth.ADV_NAME_CMPL) == 'Heart Rate':
+              try:
+                  conn = bt.connect(adv.mac)
+                  services = conn.services()
+                  for service in services:
+                      time.sleep(0.050)
+                      if type(service.uuid()) == bytes:
+                          print('Reading chars from service = {}'.format(service.uuid()))
+                      else:
+                          print('Reading chars from service = %x' % service.uuid())
+                      chars = service.characteristics()
+                      for char in chars:
+                          if (char.properties() & Bluetooth.PROP_READ):
+                              print('char {} value = {}'.format(char.uuid(), char.read()))
+                  conn.disconnect()
+                  break
+              except:
+                  print("Error while connecting or reading from the BLE device")
+                  break
+          else:
+              time.sleep(0.050)
+
 
 Constructors
 ------------
@@ -38,7 +62,7 @@ Methods
 
 .. method:: bluetooth.start_scan(timeout)
 
-   Starts performing a scan listening for BLE devices sending advertisements. This function always returns inmmediatelly, the scanning will be performed on the background. The return value is ``None``.
+   Starts performing a scan listening for BLE devices sending advertisements. This function always returns inmmediatelly, the scanning will be performed on the background. The return value is ``None``. After starting the scan the function ``get_adv()`` can be used to retrieve the advertisements messages from the FIFO. The internal FIFO has space to cache 8 advertisements.
 
    The arguments are:
 
@@ -53,12 +77,16 @@ Methods
 
    Stops an ongoing scanning process. Returns ``None``.
 
+.. method:: bluetooth.isscanning()
+
+   Returns ``True`` if a Bluetooth scan is in progress. ``False`` otherwise.
+
 .. method:: bluetooth.get_adv()
 
    Gets an named tuple with the advertisement data received during the scanning. The tuple has the following structure: ``(mac, addr_type, adv_type, rssi, data)``
 
    - ``mac`` is the 6-byte ling mac address of the device that sent the advertisement.
-   - ``addr_type`` is the address type. See the constants section below fro more details.
+   - ``addr_type`` is the address type. See the constants section below for more details.
    - ``adv_type`` is the advertisement type received. See the constants section below fro more details.
    - ``rssi`` is signed integer with the signal strength of the advertisement.
    - ``data`` contains the complete 31 bytes of the advertisement message. In order to parse the data and get the specific types, the method ``resolve_adv_data()`` can be used.
@@ -75,58 +103,52 @@ Methods
     Example::
 
         import binascii
+        from network import Bluetooth
+        bluetooth = Bluetooth()
 
-        bluetooth.start_scan(5)
-        while True:
+        bluetooth.start_scan(20)
+        while bluetooth.isscanning():
             adv = bluetooth.get_adv()
             if adv:
-                # try to the the complete name
+                # try to get the complete name
                 print(bluetooth.resolve_adv_data(adv.data, Bluetooth.ADV_NAME_CMPL))
 
-                # try to get the manufacturer data (Apple's iBeacon data is sent here)
-                print(binascii.hexlify(bluetooth.resolve_adv_data(adv.data, Bluetooth.ADV_MANUFACTURER_DATA))
+                mfg_data = bluetooth.resolve_adv_data(adv.data, Bluetooth.ADV_MANUFACTURER_DATA)
+
+                if mfg_data:
+                    # try to get the manufacturer data (Apple's iBeacon data is sent here)
+                    print(binascii.hexlify(mfg_data))
+
 
 .. method:: bluetooth.connect(mac_addr)
 
-    Opens a BLE connection with the device specified by the ``mac_addr`` argument. This function blocks until the connection succeeds or fails.
+    Opens a BLE connection with the device specified by the ``mac_addr`` argument. This function blocks until the connection succeeds or fails. If the connections succeeds it returns a object of type ``BluetoothConnection``.
 
-.. method:: bluetooth.isconnected()
+.. method:: bluetooth.set_advertisement(\*, name=None, manufacturer_data=None, service_data=None, service_uuid=None)
 
-    Returns ``True`` if a connection with another BLE device is active. ``False`` otherwise.
+    Configure the data to be sent while advertising. If left with the default of ``None`` the data won't be part of
+    the advertisement message.
 
-    Example::
+    The arguments are:
 
-        from network import Bluetooth
-        import binascii
-        bluetooth = Bluetooth()
+       - ``Name`` is the string name to be shown on advertisements.
+       - ``manufacturer_data`` manufacturer data to be advertised (hint: use it for iBeacons).
+       - ``service_data`` service data to be advertised.
+       - ``service_uuid`` uuid of the service to be advertised.
 
-        # scan until we can connect to any BLE device around
-        bluetooth.start_scan(-1)
-        adv = None
-        while True:
-            adv = bluetooth.get_adv()
-            if adv:
-                try:
-                    bluetooth.connect(adv.mac)
-                except:
-                    pass
-                if bluetooth.isconnected()
-                    break
-        printf("Connected to device with addr = {}".format(binascii.hexlify(adv.mac)))
+.. method:: bluetooth.advertise([Enable])
 
-.. method:: bluetooth.disconnect()
+    Start or stop sending advertisements. The ``.set_advertisement()`` method must have been called prior to this one.
 
-    Closes the current active BLE connection.
+.. method:: bluetooth.service(uuid, \*, isprimary=True)
 
-.. method:: bluetooth.get_services()
+    Create a new service on the internal GATT server. Returns a object of type ``BluetoothServerService``.
 
-    If a BLE connection is active, this method gets the list of services provided by the BLE peripheral. The list will contain the ``UUID`` of the services. These UUIDs can be 16-bit, 32-bit or 128-bit long. 16 and 32 bit long UUIDs are returned as integers, while 128-bit UUIDs are returned as bytes objects.
+    The arguments are:
 
-    Example::
+       - ``uuid`` is the UUID of the service. Can take an integer or a 16 byte long string or bytes object.
+       - ``isprimary`` selects if the service is a primary one. Takes a bool value.
 
-        bluetooth.connect(some_mac_addr)
-        if bluetooth.isconnected():
-            bluetooth.get_services()
 
 Constants
 ---------
@@ -165,3 +187,163 @@ Constants
           Bluetooth.ADV_MANUFACTURER_DATA
 
     Advertisement data type
+
+.. data:: Bluetooth.PROP_BROADCAST
+          Bluetooth.PROP_READ
+          Bluetooth.PROP_WRITE_NR
+          Bluetooth.PROP_WRITE
+          Bluetooth.PROP_NOTIFY
+          Bluetooth.PROP_INDICATE
+          Bluetooth.PROP_AUTH
+          Bluetooth.PROP_EXT_PROP
+
+    Characteristic properties (bit values that can be combined)
+
+.. data:: Bluetooth.CHAR_READ_EVENT
+          Bluetooth.CHAR_WRITE_EVENT
+
+    Charactertistic callback events
+
+
+class BluetoothConnection
+=========================
+
+.. method:: connection.disconnect()
+
+    Closes the BLE connection. Returns ``None``.
+
+.. method:: connection.isconnected()
+
+    Returns ``True`` if the connection is still open. ``False`` otherwise.
+
+    Example::
+
+        from network import Bluetooth
+        import binascii
+        bluetooth = Bluetooth()
+
+        # scan until we can connect to any BLE device around
+        bluetooth.start_scan(-1)
+        adv = None
+        while True:
+            adv = bluetooth.get_adv()
+            if adv:
+                try:
+                    bluetooth.connect(adv.mac)
+                except:
+                    # start scanning again
+                    bluetooth.start_scan(-1)
+                    continue
+                break
+        print("Connected to device with addr = {}".format(binascii.hexlify(adv.mac)))
+
+
+.. method:: connection.services()
+
+    Performs a service search on the connected BLE peripheral a returns a list containing objects of the class ``BluetoothService`` if the search succeeds.
+
+    Example::
+
+      # assuming that a BLE connection is already open
+      services = connection.services()
+      print(services)
+      for service in services:
+          print(service.uuid())
+
+
+class BluetoothService
+======================
+
+.. method:: service.isprimary()
+
+    Returns ``True`` if the service is a primary one. ``False`` otherwise.
+
+.. method:: service.uuid()
+
+    Returns the UUID of the service. In the case of 16-bit or 32-bit long UUIDs, the value returned is an integer, but for 128-bit long UUIDs the value returned is a bytes object.
+
+.. method:: service.instance()
+
+    Returns the instance ID of the service.
+
+.. method:: service.characteristics()
+
+    Performs a get characteristics request on the connected BLE peripheral a returns a list containing objects of the class ``BluetoothCharacteristic`` if the request succeeds.
+
+
+class BluetoothCharacteristic
+=============================
+
+.. method:: characteristic.uuid()
+
+    Returns the UUID of the service. In the case of 16-bit or 32-bit long UUIDs, the value returned is an integer, but for 128-bit long UUIDs the value returned is a bytes object.
+
+.. method:: characteristic.instance()
+
+    Returns the instance ID of the service.
+
+.. method:: characteristic.properties()
+
+    Returns an integer indicating the properties of the characteristic. Properties are represented by bit values that can be ORed together. See the constants section for more details.
+
+.. method:: characteristic.read()
+
+    Read the value of the characteristic. For now it always returns a bytes object represetning the characteristic value. In the future a specific type (integer, string, bytes) will be returned depending on the characteristic in question.
+
+.. method:: characteristic.write(value)
+
+    Writes the given value on the characteristic. For now it only accepts bytes object representing the value to be written.
+
+
+class BluetoothServerService
+============================
+
+.. method:: service.characteristic(uuid, \*, permissions, properties, value)
+
+    Creates a new characteristic on the service. Returns an object of the class ``BluetoothServerCharacteristic``.
+    The arguments are:
+
+      - ``uuid`` is the UUID of the service. Can take an integer or a 16 byte long string or bytes object.
+      - ``permissions`` configures the permissions of the characteristic. Takes an integer with an ORed combination of the flags
+      - ``properties`` sets the properties. Takes an integer with an ORed combination of the flags.
+      - ``value`` sets the initial value. Can take an integer, a string or a bytes object.
+
+
+class BluetoothServerCharacteristic
+===================================
+
+.. method:: characteristic.value([value])
+
+    Gets or sets the value of the characteristic. Can take an integer, a string or a bytes object.
+
+.. method:: characteristic.callback(trigger=None, handler=None, arg=None)
+
+    Creates a callback that will be executed when any of the triggers occurs. The arguments are:
+
+       - ``trigger`` can be either ``Bluetooth.CHAR_READ_EVENT`` or ``Bluetooth.CHAR_WRITE_EVENT``.
+       - ``handler`` is the function that will be executed when the callback is triggered.
+       - ``arg`` is the argument that gets passed to the callback. If nothing is given, the characteristic object that owns the callback will be passed.
+
+
+Example of advertising and creating services on the device::
+
+    from network import Bluetooth
+
+    bluetooth = Bluetooth()
+    bluetooth.set_advertisement(name='LoPy', service_uuid=b'1234567890123456')
+
+    bluetooth.advertise(True)
+
+    srv1 = bluetooth.service(uuid=b'1234567890123456', isprimary=True)
+
+    chr1 = srv1.characteristic(uuid=b'ab34567890123456', value=5)
+
+    def char1_cb(chr):
+        print("Write request with value = {}".format(chr.value()))
+
+    char1_cb = chr1.callback(trigger=Bluetooth.CHAR_WRITE_EVENT, handler=char1_cb)
+
+    srv2 = bluetooth.service(uuid=1234, isprimary=True)
+
+    chr2 = srv2.characteristic(uuid=4567)
+
