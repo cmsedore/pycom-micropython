@@ -1993,7 +1993,19 @@ static uint8_t CountNbEnabled125kHzChannels( uint16_t *channelsMask )
 
     for( uint8_t i = 0, k = 0; i < LORA_MAX_NB_CHANNELS - 8; i += 16, k++ )
     {
-        nb125kHzChannels += CountBits( channelsMask[k], 16 );
+            for( uint8_t j = 0; j < 16; j++ )
+            {
+                if( ( channelsMask[k] & ( 1 << j ) ) != 0 )
+                {
+
+                    if( Channels[i + k].Frequency == 0 )
+                    { // Check if the channel is enabled
+                        continue;
+                    }
+
+                    nb125kHzChannels ++;
+                }
+            }
     }
 
     return nb125kHzChannels;
@@ -2669,7 +2681,7 @@ static LoRaMacStatus_t ScheduleTx( )
     CalculateBackOff( LastTxChannel );
 
     // Select channel
-    while( SetNextChannel( &dutyCycleTimeOff ) == false )
+    if( SetNextChannel( &dutyCycleTimeOff ) == false )
     {
         // Set the default datarate
         LoRaMacParams.ChannelsDatarate = LoRaMacParamsDefaults.ChannelsDatarate;
@@ -2678,6 +2690,9 @@ static LoRaMacStatus_t ScheduleTx( )
         // Re-enable default channels LC1, LC2, LC3
         LoRaMacParams.ChannelsMask[0] = LoRaMacParams.ChannelsMask[0] | ( LC( 1 ) + LC( 2 ) + LC( 3 ) );
 #endif
+        if (SetNextChannel(&dutyCycleTimeOff) == false) {
+            return LORAMAC_STATUS_PARAMETER_INVALID;
+        }
     }
 
     // Schedule transmission of frame
