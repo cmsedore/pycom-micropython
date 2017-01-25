@@ -176,6 +176,7 @@ typedef struct {
   uint8_t           sf;
   uint8_t           tx_power;
   uint8_t           pwr_mode;
+  uint16_t          uplink_counter;
   struct {
     bool Enabled;
     bool Running;
@@ -692,6 +693,19 @@ static void TASK_LoRa (void *pvParameters) {
                     // just enable the receiver again
                     Radio.Rx(LORA_RX_TIMEOUT);
                     lora_obj.state = E_LORA_STATE_RX;
+                    xEventGroupSetBits(LoRaEvents, LORA_STATUS_COMPLETED);
+                    break;
+                case E_LORA_CMD_GET_UPLINK_COUNTER:
+                    mibReq.Type=MIB_UPLINK_COUNTER;
+                    LoRaMacMibGetRequestConfirm(&mibReq);
+                    lora_obj.uplink_counter=mibReq.Param.UpLinkCounter;
+                    xEventGroupSetBits(LoRaEvents, LORA_STATUS_COMPLETED);
+                    break;
+                case E_LORA_CMD_SET_UPLINK_COUNTER:
+                    mibReq.Type=MIB_UPLINK_COUNTER;
+                    mibReq.Param.UpLinkCounter=cmd_data.info.init.uplink_counter;
+                    LoRaMacMibSetRequestConfirm(&mibReq);
+                    lora_obj.uplink_counter=mibReq.Param.UpLinkCounter;
                     xEventGroupSetBits(LoRaEvents, LORA_STATUS_COMPLETED);
                     break;
                 default:
@@ -1423,6 +1437,23 @@ STATIC mp_obj_t lora_mac(mp_obj_t self_in) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(lora_mac_obj, lora_mac);
 
+STATIC mp_obj_t lora_uplink_counter(mp_uint_t n_args, const mp_obj_t *args) {
+    lora_obj_t *self = args[0];
+    lora_cmd_data_t cmd_data;
+
+    if (n_args == 1) {
+        cmd_data.cmd=E_LORA_CMD_GET_UPLINK_COUNTER;
+        lora_send_cmd(&cmd_data);
+        return mp_obj_new_int(self->uplink_counter);
+    } else {
+        cmd_data.cmd=E_LORA_CMD_SET_UPLINK_COUNTER;
+        cmd_data.info.init.uplink_counter=mp_obj_get_int(args[1]);
+        lora_send_cmd(&cmd_data);
+        return mp_const_none;
+    }
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(lora_uplink_counter_obj, 1, 2, lora_uplink_counter);
+
 STATIC const mp_map_elem_t lora_locals_dict_table[] = {
     // instance methods
     { MP_OBJ_NEW_QSTR(MP_QSTR_init),                (mp_obj_t)&lora_init_obj },
@@ -1440,6 +1471,7 @@ STATIC const mp_map_elem_t lora_locals_dict_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR_remove_channel),      (mp_obj_t)&lora_remove_channel_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_mac),                 (mp_obj_t)&lora_mac_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_compliance_test),     (mp_obj_t)&lora_compliance_test_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_uplink_counter),      (mp_obj_t)&lora_uplink_counter_obj },
 
     // class constants
     { MP_OBJ_NEW_QSTR(MP_QSTR_LORA),                MP_OBJ_NEW_SMALL_INT(E_LORA_STACK_MODE_LORA) },
