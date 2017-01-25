@@ -33,6 +33,8 @@ typedef enum {
     E_LORA_CMD_LORAWAN_TX,
     E_LORA_CMD_SLEEP,
     E_LORA_CMD_WAKE_UP,
+    E_LORA_CMD_GET_UPLINK_COUNTER,
+    E_LORA_CMD_SET_UPLINK_COUNTER,
 } lora_cmd_t;
 
 typedef struct {
@@ -45,6 +47,7 @@ typedef struct {
     uint8_t     tx_power;
     uint8_t     power_mode;
     uint8_t     tx_retries;
+    uint16_t    uplink_counter;
     bool        txiq;
     bool        rxiq;
     bool        adr;
